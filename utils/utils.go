@@ -4,7 +4,7 @@
 package utils
 
 import (
-	"github.com/toschoo/golang/conduit"
+	"github.com/toschoo/conduit"
 	"encoding/csv"
 	"fmt"
 	"io"
