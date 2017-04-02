@@ -53,7 +53,7 @@ type Conduit interface {
 // Chain encapsulates the chain processing
 // and hides anything irrelevant for users
 // building applications.
-// Errors that led to the termination of one
+// Errors that lead to the termination of one
 // or more components can be inspected through Errs.
 type Chain struct {
 	door  sync.Mutex
@@ -67,7 +67,7 @@ type Chain struct {
 
 // Resets the chain for a new round of processing.
 func (ch *Chain) reset() {
-	ch.Errs = make([]error, 8)
+	ch.Errs = nil
 	ch.e = false
 }
 
@@ -166,10 +166,7 @@ func NewChain(p Producer, pipe []Conduit, c Consumer, sz uint32) (ch *Chain) {
 		ch.pipe = pipe
 		ch.sz = sz
 		ch.e = false
-		ch.Errs = make([]error, 8)
-		if ch.Errs == nil {
-			return nil
-		}
+		ch.Errs = nil
 	}
 	return
 }
