@@ -142,6 +142,34 @@ func NewCSV (r io.Reader) (p *CSV) {
 	return
 }
 
+// CSW is a Consumer that feeds data
+// read from a CSV-encoded source 
+// line by line into the processing chain.
+// CSW receives data as string slices,
+// each slice representing 
+// one line in the CSV target.
+type CSW struct {
+	Wt *csv.Writer
+}
+
+// Consume is the pre-defined method that
+// makes CSW a Consumer.
+func (csw *CSW) Consume(src conduit.Source) error {
+	for inp := range src {
+		line := inp.([]string)
+		csw.Wt.Write(line)
+	}
+	return nil
+}
+
+// NewCSW creates a new CSV Consumer
+// using some kind of io.Writer.
+func NewCSW(stream io.Writer) *CSW {
+	csw := new(CSW)
+	csw.Wt = csv.NewWriter(stream)
+	return csw
+}
+
 // Identity is a Conduit that 
 // forwards incoming data as is.
 // It is useful only as a demonstration
