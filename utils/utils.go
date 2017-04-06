@@ -159,6 +159,7 @@ func (csw *CSW) Consume(src conduit.Source) error {
 		line := inp.([]string)
 		csw.Wt.Write(line)
 	}
+	csw.Wt.Flush()
 	return nil
 }
 
