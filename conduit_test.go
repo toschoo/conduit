@@ -9,9 +9,9 @@ import (
 )
 
 const (
-	small uint32 = 128
-	medium uint32 = 1024
-	big uint32 = 8192
+	small = 128
+	medium = 1024
+	big = 8192
 )
 
 const (
@@ -176,6 +176,21 @@ func TestErrConduitChain(t *testing.T) {
 		err := testErrConduitChain(numOfData)
 		if err != nil {
 			m := fmt.Sprintf("ErrConduitChain failed: %v", err)
+			t.Error(m)
+		}
+	}
+}
+
+// Chain with more data than buffer space and
+// the number of data not being a multiple of
+// the buffer size:
+// - All data are received 
+// - in the order in which they were sent
+func TestBigDataChain(t *testing.T) {
+	for i:=0; i<numOfTests; i++ {
+		err := testBigDataChain(medium)
+		if err != nil {
+			m := fmt.Sprintf("BigDataChain failed: %v", err)
 			t.Error(m)
 		}
 	}
@@ -355,6 +370,37 @@ func testErrConduitChain(n int) error {
 	return nil
 }
 
+func testBigDataChain(n int) error {
+
+	mydata := makeTestData(n)
+
+	p := new(BaseProducer)
+	p.src = mydata
+
+	c := new(BaseConsumer)
+
+	chn := NewChain(p, nil, c, 5)
+
+	err := chn.Run()
+	if err != nil {
+		m := fmt.Sprintf("error on running chain: %v", err)
+		return errors.New(m)
+	}
+	if len(chn.Errs) > 0 {
+		m := fmt.Sprintf("error occurred: %v", chn.Errs)
+		return errors.New(m)
+	}
+	for i:=0; i < n; i++ {
+		if mydata[i] != c.recvd[i] {
+			return errors.New("Received values differ from original!")
+		}
+	}
+	return nil
+}
+
+// ------------------------------------------------------------------------
+// Benchmarks
+// ------------------------------------------------------------------------
 type NumProducer struct {
 	max int
 }

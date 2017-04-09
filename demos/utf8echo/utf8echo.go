@@ -1,4 +1,5 @@
-// A simple echo server consisting only of predefined components.
+// A simple unicode-aware echo server 
+// consisting only of predefined components.
 package main
 
 import (
@@ -10,8 +11,9 @@ import (
 
 func main() {
 	rdr := cutils.NewReader(os.Stdin)
+	pipe := []conduit.Conduit{cutils.NewUtf8Conduit()}
 	prn := cutils.NewTextPrinter(os.Stdout)
-	chn := conduit.NewChain(rdr, nil, prn, 10)
+	chn := conduit.NewChain(rdr, pipe, prn, 10)
 	err := chn.Run()
 	if err != nil {
 		fmt.Printf("%v: %v\n", chn.Errs)

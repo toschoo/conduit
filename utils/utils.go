@@ -4,10 +4,11 @@
 package utils
 
 import (
-	"github.com/toschoo/conduit"
 	"encoding/csv"
 	"fmt"
+	"github.com/toschoo/conduit"
 	"io"
+	"unicode/utf8"
 )
 
 // Generators are expected to provide an interface
@@ -58,50 +59,37 @@ func NewGeneric(gen Generator) (g *Generic) {
 type Reader struct {
 	rd   io.Reader
 	sz   int
-	text bool
 }
 
 // Produce is the pre-defined method that
 // makes Reader a Producer.
 func (rd *Reader) Produce(trg conduit.Target) error {
-	buf := make([]byte,rd.sz)
 	for {
+		buf := make([]byte,rd.sz)
 		n, err := rd.rd.Read(buf)
 		if err != nil {
-			if err == io.EOF {
-				break
+			if err != io.EOF {
+				return err
 			}
-			return err
 		}
-		if rd.text {
-			trg <- string(buf[:n])
-		} else {
+		if n > 0 {
 			trg <- buf[:n]
+		}
+		if err == io.EOF {
+			break
 		}
 	}
 	return nil
 }
 
-// NewByteReader creates a new Reader Producer
+// NewReader creates a new Reader Producer
 // using some kind of io.Reader.
 // The data is sent down the chain as []byte.
-func NewByteReader(reader io.Reader) (r *Reader) {
+func NewReader(reader io.Reader) (r *Reader) {
 	r = new(Reader)
 	if r != nil {
 		r.rd = reader
 		r.sz = 8192
-		r.text = false
-	}
-	return
-}
-
-// NewTextReader creates a new Reader Producer
-// using some kind of io.Reader.
-// The data is sent down the chain as string.
-func NewTextReader(reader io.Reader) (r *Reader) {
-	r = NewByteReader(reader)
-	if r != nil {
-		r.text = true
 	}
 	return
 }
@@ -271,6 +259,149 @@ func NewTransformer(trnf Transform) (trn *Transformer) {
 	return
 }
 
+// Utf8Conduit receives a stream of bytes
+// that represent utf8-encoded runes;
+// Utf8Conduit guarantees that each block
+// of bytes sent down the processing stream
+// contains only full runes, i.e.
+// runes are not broken into parts at
+// the block barriers.
+// If the original stream does not contain
+// invalid rune, then Utf8Conduit guarantees
+// that the outgoing stream does not contain
+// invalid runes either.
+type Utf8Conduit struct {
+	lo  []byte
+	inv []byte
+	idx int
+}
+
+// Conduct makes Utf8Conduit a Conduit
+func (u *Utf8Conduit) Conduct(src conduit.Source, trg conduit.Target) error {
+	for inp := range src {
+
+		bs := inp.([]byte)
+
+		n := u.addLeftOver(bs, trg)
+		b2 := bs[n:]
+
+		l := u.storeLeftOver(b2)
+		if len(b2[:l]) > 0 {
+			trg <- b2[:l]
+		}
+	}
+	return nil
+}
+
+// NewUtf8Conduit creates a new conduit
+func NewUtf8Conduit() *Utf8Conduit {
+	u := new(Utf8Conduit)
+	u.lo = make([]byte,utf8.UTFMax)
+	u.inv = make([]byte,3)
+	_ = utf8.EncodeRune(u.inv, utf8.RuneError)
+	return u
+}
+
+// helper for Utf8Conduit that stores leftover bytes,
+// i.e. bytes at the end of the buffer that do not
+//      form a valid rune
+func (u *Utf8Conduit) storeLeftOver(bs []byte) int {
+
+	s := len(bs)
+
+	// buf is empty: nothing to do
+	if s == 0 {
+		return 0
+	}
+
+	r, _ := utf8.DecodeLastRune(bs)
+
+	// last rune complete: nothing to do
+	if r != utf8.RuneError {
+		return s
+	}
+
+	l := s-1
+
+	// buf has only one element, grab it
+	if l == 0 {
+		u.lo[u.idx] = bs[l]
+		u.idx++
+		return s-1
+	}
+
+	// go backwards in the buf, until we find
+	// a valid rune (at most UTFMax byte); 
+	// the bytes ahead of the end
+	// of that rune are leftovers. 
+	min := s-utf8.UTFMax
+	for ; l >= 0 && l > min; l-- {
+		r, _ := utf8.DecodeLastRune(bs[:l])
+		if r != utf8.RuneError {
+			for i:=l; i<s; i++ {
+				u.lo[u.idx] = bs[i]
+				u.idx++
+			}
+			return l
+		}
+	}
+	// invalid utf
+	if u.idx == utf8.UTFMax {
+		return s
+	}
+	// buffer < utf8.UTFMax
+	l++
+	for i:=l; i<s; i++ {
+		u.lo[u.idx] = bs[i]
+		u.idx++
+	}
+	return l
+}
+
+// helper for Utf8Conduit that completes runes
+// using the leftover bytes
+func (u *Utf8Conduit) addLeftOver(bs []byte, trg conduit.Target) int {
+
+	// no leftovers
+	if u.idx == 0 {
+		return 0
+	}
+
+	// start with the leftovers
+	tmp := u.lo[:u.idx]
+
+	i:=0
+	s := len(bs)
+
+	// add bytes until we have a valid rune,
+	// at most UTFMax
+	for ; i<s && u.idx < utf8.UTFMax; i++ {
+
+		tmp = append(tmp,bs[i])
+
+		// complete: send it
+		if utf8.FullRune(tmp) {
+			trg <- tmp
+			u.idx = 0
+			return i+1
+		}
+
+		// remember for the case
+		// the buffer is smaller 
+		// than UTF8Max
+		u.idx++;
+	}
+	// invalid rune
+	if u.idx == utf8.UTFMax {
+		trg <- u.inv
+		u.idx = 0
+		return i
+	}
+
+	// ignore entire buffer
+	return s
+}
+
 // Printer is a Consumer that writes the result
 // as text to some kind of io.Writer using fmt.Fprintf.
 type Printer struct {
@@ -305,9 +436,13 @@ func NewPrinter(stream io.Writer) (p *Printer) {
 }
 
 // NewTextPrinter creates a new Printer Consumer
-// that writes the data using fmt.Fprintf with ver %s.
+// that writes the data using fmt.Fprintf with verb %s.
 // TextPrinter expects incoming data to be byte slices, 
 // which are explictly converted to strings.
+// Note that TextPrinter does not ensure that
+// the arriving byte slices contain correctly encoded
+// unicode. That must be ensured by the producer or
+// a conduit in the processing chain.
 func NewTextPrinter(stream io.Writer) (p *Printer) {
 	p = NewPrinter(stream)
 	if p != nil {
