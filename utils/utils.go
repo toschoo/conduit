@@ -368,7 +368,8 @@ func (u *Utf8Conduit) addLeftOver(bs []byte, trg conduit.Target) int {
 	}
 
 	// start with the leftovers
-	tmp := u.lo[:u.idx]
+	tmp := make([]byte, u.idx)
+	copy(tmp, u.lo[:u.idx])
 
 	i:=0
 	s := len(bs)
@@ -389,6 +390,7 @@ func (u *Utf8Conduit) addLeftOver(bs []byte, trg conduit.Target) int {
 		// remember for the case
 		// the buffer is smaller 
 		// than UTF8Max
+		u.lo[u.idx] = bs[i]
 		u.idx++;
 	}
 	// invalid rune
@@ -416,9 +418,9 @@ func (prn *Printer) Consume(src conduit.Source) error {
 		if prn.text {
 			buf := inp.([]byte)
 			runes := string(buf)
-			fmt.Fprintf(prn.stream, "%s\n", runes)
+			fmt.Fprintf(prn.stream, "%s", runes)
 		} else {
-			fmt.Fprintf(prn.stream, "%v\n", inp)
+			fmt.Fprintf(prn.stream, "%v", inp)
 		}
 	}
 	return nil
