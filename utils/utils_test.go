@@ -83,18 +83,6 @@ func (c *ByteConsumer) Consume(src conduit.Source) error {
 	return nil
 }
 
-type RuneConsumer struct {
-	recvd []rune
-}
-
-func (c *RuneConsumer) Consume(src conduit.Source) error {
-	for v := range src {
-		buf := v.([]rune)
-		c.recvd = append(c.recvd, buf...)
-	}
-	return nil
-}
-
 // Chain with identity conduit:
 // - It is processed without errors
 // - All data are received 
@@ -198,6 +186,7 @@ func testByteReaderChain(n int) error {
 }
 
 type Utf8Producer struct {
+	rs   []rune
 	step int
 	sample int
 }
@@ -205,13 +194,11 @@ type Utf8Producer struct {
 // k shuffle
 func permute(src []rune) {
 	s := len(src)
-	idx := make([]int,s)
+
 	for i:=0;i<s;i++ {
-		idx[i] = rand.Int()%s
-	}
-	for i:=0;i<s;i++ {
-		if idx[i] != i {
-			src[i], src[idx[i]] = src[idx[i]], src[i]
+		j := rand.Int()%s
+		if j != i {
+			src[i], src[j] = src[j], src[i]
 		}
 	}
 }
@@ -223,24 +210,23 @@ func (p *Utf8Producer) Produce(trg conduit.Target) error {
 	str := "爾欠少什麼。道流、是爾目前用底、與祖佛不"
 	rs1 := []rune(str)
 
-	var rs []rune
 	var sz int
 
 	if p.sample == 0 {
-		rs = rs0
+		p.rs = rs0
 		sz = 13
 	} else {
-		rs = rs1
+		p.rs = rs1
 		sz = 60
 	}
 
-	permute(rs)
-	s := len(rs)
+	permute(p.rs)
+	s := len(p.rs)
 	src := make([]byte, sz)
 
 	j := 0
 	for i:=0; i<s; i++ {
-		n := utf8.EncodeRune(src[j:], rs[i])
+		n := utf8.EncodeRune(src[j:], p.rs[i])
 		j+=n
 	}
 
@@ -269,6 +255,7 @@ func (p *Utf8Producer) Produce(trg conduit.Target) error {
 }
 
 type Utf8Consumer struct {
+	rs []rune
 }
 
 func (c *Utf8Consumer) Consume(src conduit.Source) error {
@@ -283,6 +270,7 @@ func (c *Utf8Consumer) Consume(src conduit.Source) error {
 				return errors.New(m)
 			}
 			// fmt.Printf("%s\n", string(bs[i:i+n]))
+			c.rs = append(c.rs, r)
 			i+=n
 		}
 	}
@@ -301,11 +289,22 @@ func testUtf8ConduitChain() error {
 
 	chn := conduit.NewChain(p, pipe, c, small)
 
-	_ = chn.Run()
+	err := chn.Run()
 	if len(chn.Errs) > 0 {
 		m := fmt.Sprintf("error occurred: %v", chn.Errs)
 		return errors.New(m)
 	}
+	if err != nil {
+		m := fmt.Sprintf("unknown error occurred: %v", err)
+		return errors.New(m)
+	}
+	for i, r := range p.rs {
+		if r != c.rs[i] {
+			m := fmt.Sprintf("source and target differ: %d - %d", r, c.rs[i])
+			return errors.New(m)
+		}
+	}
+	// fmt.Printf("%s\n", string(c.rs))
 	return nil
 }
 
